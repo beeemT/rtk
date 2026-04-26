@@ -2,9 +2,9 @@
 
 ## Scope
 
-**Deployed hook artifacts** — the actual files installed on user machines by `rtk init`. These are shell scripts, TypeScript plugins, and rules files that run outside the Rust binary. They are **thin delegates**: parse agent-specific JSON, call `rtk rewrite` as a subprocess, format agent-specific response. Zero filtering logic lives here.
+**Deployed hook artifacts** — the actual files installed on user machines by `rtk init`. These are shell scripts, TypeScript plugins/extensions, and rules files that run outside the Rust binary. Rewrite-capable artifacts are **thin delegates**: parse agent-specific JSON, call `rtk rewrite` as a subprocess, and format agent-specific responses. Prompt-only artifacts inject RTK awareness. Zero filtering logic lives here.
 
-Owns: per-agent hook scripts and configuration files for 7 supported agents (Claude Code, Copilot, Cursor, Cline, Windsurf, Codex, OpenCode).
+Owns: per-agent hook scripts and configuration files for 8 supported agents (Claude Code, Copilot, Cursor, Cline, Windsurf, Codex, OpenCode, Oh-My-Pi).
 
 Does **not** own: hook installation/uninstallation (that's `src/hooks/init.rs`), the rewrite pattern registry (that's `discover/registry`), or integrity verification (that's `src/hooks/integrity.rs`).
 
@@ -12,7 +12,7 @@ Relationship to `src/hooks/`: that component **creates** these files; this direc
 
 ## Purpose
 
-LLM agent integrations that intercept CLI commands and route them through RTK for token optimization. Each hook transparently rewrites raw commands (e.g., `git status`) to their RTK equivalents (e.g., `rtk git status`), delivering 60-90% token savings without requiring the agent or user to change their workflow.
+LLM agent integrations that route CLI commands through RTK for token optimization. Most hooks transparently rewrite raw commands (e.g., `git status`) to their RTK equivalents (e.g., `rtk git status`); prompt-level integrations inject instructions so the model chooses `rtk <command>` manually.
 
 ## How It Works
 
@@ -27,7 +27,7 @@ Agent runs command (e.g., "cargo test --nocapture")
   -> Filtered output reaches LLM (~90% fewer tokens)
 ```
 
-All rewrite logic lives in the Rust binary (`src/discover/registry.rs`). Hook scripts are **thin delegates** that handle agent-specific JSON formats and call `rtk rewrite` for the actual decision. This ensures a single source of truth for all 70+ rewrite patterns.
+All rewrite logic lives in the Rust binary (`src/discover/registry.rs`). Hook scripts are **thin delegates** that handle agent-specific JSON formats and call `rtk rewrite` for the actual decision. Prompt-only integrations such as Oh-My-Pi do not call `rtk rewrite`; they only tell the model when to use `rtk <command>`. This keeps the Rust registry as the single source of truth for all 70+ rewrite patterns.
 
 ## Directory Structure
 
@@ -40,6 +40,7 @@ Each agent subdirectory has its own README with hook-specific details:
 - **[`windsurf/`](windsurf/README.md)** — Rules file (prompt-level), `.windsurfrules` workspace-scoped
 - **[`codex/`](codex/README.md)** — Awareness document, `AGENTS.md` integration, `$CODEX_HOME` or `~/.codex/` location
 - **[`opencode/`](opencode/README.md)** — TypeScript plugin, `zx` library, `tool.execute.before` event, in-place mutation
+- **[`omp/`](omp/README.md)** — Oh-My-Pi TypeScript extension, `before_agent_start` prompt injection, no command rewrite
 
 ## Supported Agents
 
@@ -54,6 +55,7 @@ Each agent subdirectory has its own README with hook-specific details:
 | Windsurf | Custom instructions (rules file) | Prompt-level guidance | N/A |
 | Codex CLI | AGENTS.md / instructions | Prompt-level guidance | N/A |
 | OpenCode | TypeScript plugin (`tool.execute.before`) | In-place mutation | Yes |
+| Oh-My-Pi | TypeScript extension (`before_agent_start`) | Prompt-level RTK awareness | No |
 
 ## JSON Formats by Agent
 
@@ -156,6 +158,17 @@ if (rewritten && rewritten !== command) {
 }
 ```
 
+### Oh-My-Pi (TypeScript Extension)
+
+Does not mutate tool input. It appends an idempotent RTK awareness block to the system prompt via `before_agent_start`:
+```typescript
+pi.on("before_agent_start", async (event) => {
+  return { systemPrompt: `${event.systemPrompt}\n\n<!-- rtk-omp -->...` }
+})
+```
+
+Installed to `~/.omp/agent/extensions/rtk.ts` by `rtk init -g --omp`. Uses `systemPrompt`, not `systemPromptAppend`, and intentionally does not implement `tool_call` command rewriting because Oh-My-Pi's public result type cannot replace tool input.
+
 ## Command Rewrite Registry
 
 The registry (`src/discover/registry.rs`) handles command patterns across these categories:
@@ -217,7 +230,7 @@ New integrations must follow the [Exit Code Contract](#exit-code-contract) and [
 | Tier | Mechanism | Maintenance | Examples |
 |------|-----------|-------------|----------|
 | **Full hook** | Shell script or Rust binary, intercepts commands via agent's hook API | High — must track agent API changes | Claude Code, Cursor, Copilot, Gemini |
-| **Plugin** | TypeScript/JS plugin in agent's plugin system | Medium — agent manages loading | OpenCode |
+| **Plugin** | TypeScript/JS plugin in agent's plugin system | Medium — agent manages loading | OpenCode, Oh-My-Pi |
 | **Rules file** | Prompt-level instructions the agent reads | Low — no code to break | Cline, Windsurf, Codex |
 
 ### Eligibility

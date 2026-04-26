@@ -1,6 +1,6 @@
 ---
 title: Supported Agents
-description: How to integrate RTK with Claude Code, Cursor, Copilot, Cline, Windsurf, Codex, OpenCode, Kilo Code, and Antigravity
+description: How to integrate RTK with Claude Code, Cursor, Copilot, Cline, Windsurf, Codex, OpenCode, Oh-My-Pi, Kilo Code, and Antigravity
 sidebar:
   order: 3
 ---
@@ -11,9 +11,9 @@ RTK supports all major AI coding agents across 3 integration tiers. Mistral Vibe
 
 ## How it works
 
-Each agent integration intercepts CLI commands before execution and rewrites them to their RTK equivalent. The agent runs `rtk cargo test` instead of `cargo test`, sees filtered output, and uses up to 90% fewer tokens — without any change to your workflow.
+Most agent integrations intercept CLI commands before execution and rewrite them to their RTK equivalent. The agent runs `rtk cargo test` instead of `cargo test`, sees filtered output, and uses up to 90% fewer tokens — without any change to your workflow.
 
-All rewrite logic lives in the RTK binary (`rtk rewrite`). Agent hooks are thin delegates that parse the agent-specific JSON format and call `rtk rewrite` for the actual decision.
+All rewrite logic lives in the RTK binary (`rtk rewrite`). Agent hooks are thin delegates that parse the agent-specific JSON format and call `rtk rewrite` for the actual decision. Prompt-level integrations, such as Oh-My-Pi, cannot mutate tool input and instead inject RTK awareness so the model chooses `rtk <cmd>` manually.
 
 ```
 Agent runs "cargo test"
@@ -34,6 +34,7 @@ Agent runs "cargo test"
 | Cursor | Shell hook (`preToolUse`) | Yes |
 | Gemini CLI | Rust binary (`BeforeTool`) | Yes |
 | OpenCode | TypeScript plugin (`tool.execute.before`) | Yes |
+| Oh-My-Pi | TypeScript extension (`before_agent_start` prompt injection) | No (prompt-level) |
 | OpenClaw | TypeScript plugin (`before_tool_call`) | Yes |
 | Cline / Roo Code | Rules file (prompt-level) | N/A |
 | Windsurf | Rules file (prompt-level) | N/A |
@@ -83,6 +84,14 @@ rtk init --global --opencode
 ```
 
 Creates `~/.config/opencode/plugins/rtk.ts`. Uses the `tool.execute.before` hook.
+
+### Oh-My-Pi
+
+```bash
+rtk init --global --omp
+```
+
+Creates `~/.omp/agent/extensions/rtk.ts`. Uses `before_agent_start` to return an updated `systemPrompt` with an idempotent RTK awareness block. Oh-My-Pi's extension result cannot mutate tool input, so this is prompt-level guidance rather than transparent command rewrite.
 
 ### OpenClaw
 
@@ -137,10 +146,10 @@ Support is blocked on upstream `BeforeToolCallback` ([mistral-vibe#531](https://
 | Tier | Mechanism | How rewrites work |
 |------|-----------|------------------|
 | **Full hook** | Shell script or Rust binary, intercepts via agent API | Transparent — agent never sees the raw command |
-| **Plugin** | TypeScript/JS in agent's plugin system | Transparent — in-place mutation |
+| **Plugin** | TypeScript/JS in agent's plugin system | Transparent when the API supports input mutation; prompt-level when it only supports prompt updates |
 | **Rules file** | Prompt-level instructions | Guidance only — agent is told to prefer `rtk <cmd>` |
 
-Rules file integrations (Cline, Windsurf, Codex, Kilo Code, Antigravity) rely on the model following instructions. Full hook integrations (Claude Code, Cursor, Gemini) are guaranteed — the command is rewritten before the agent sees it.
+Rules file integrations (Cline, Windsurf, Codex, Kilo Code, Antigravity) and prompt-only extensions (Oh-My-Pi) rely on the model following instructions. Full hook integrations (Claude Code, Cursor, Gemini) and mutation-capable plugins (OpenCode) are guaranteed — the command is rewritten before execution.
 
 ## Windows support
 

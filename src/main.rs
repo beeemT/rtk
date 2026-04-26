@@ -317,6 +317,10 @@ enum Commands {
         #[arg(long)]
         opencode: bool,
 
+        /// Install Oh-My-Pi extension (global-only, prompt-level RTK awareness)
+        #[arg(long)]
+        omp: bool,
+
         /// Initialize for Gemini CLI instead of Claude Code
         #[arg(long)]
         gemini: bool,
@@ -1706,6 +1710,7 @@ fn run_cli() -> Result<i32> {
         Commands::Init {
             global,
             opencode,
+            omp,
             gemini,
             agent,
             show,
@@ -1717,11 +1722,41 @@ fn run_cli() -> Result<i32> {
             codex,
             copilot,
         } => {
+            if opencode && omp {
+                anyhow::bail!("--opencode and --omp cannot be combined yet; run `rtk init -g --opencode` and `rtk init -g --omp` separately");
+            }
+            if omp && gemini {
+                anyhow::bail!("--omp cannot be combined with --gemini");
+            }
+            if omp && copilot {
+                anyhow::bail!("--omp cannot be combined with --copilot");
+            }
+            if omp && agent.is_some() {
+                anyhow::bail!(
+                    "--omp cannot be combined with --agent; run the install commands separately"
+                );
+            }
+            if omp && codex {
+                anyhow::bail!("--omp cannot be combined with --codex");
+            }
+            if omp && claude_md {
+                anyhow::bail!("--omp cannot be combined with --claude-md");
+            }
+            if omp && hook_only {
+                anyhow::bail!("--omp cannot be combined with --hook-only");
+            }
+            if omp && auto_patch {
+                anyhow::bail!("--omp cannot be combined with --auto-patch");
+            }
+            if omp && no_patch {
+                anyhow::bail!("--omp cannot be combined with --no-patch");
+            }
+
             if show {
                 hooks::init::show_config(codex)?;
             } else if uninstall {
                 let cursor = agent == Some(AgentTarget::Cursor);
-                hooks::init::uninstall(global, gemini, codex, cursor, cli.verbose)?;
+                hooks::init::uninstall(global, gemini, codex, cursor, omp, cli.verbose)?;
             } else if gemini {
                 let patch_mode = if auto_patch {
                     hooks::init::PatchMode::Auto
@@ -1747,7 +1782,7 @@ fn run_cli() -> Result<i32> {
                 hooks::init::run_antigravity_mode(cli.verbose)?;
             } else {
                 let install_opencode = opencode;
-                let install_claude = !opencode;
+                let install_claude = !(opencode || omp);
                 let install_cursor = agent == Some(AgentTarget::Cursor);
                 let install_windsurf = agent == Some(AgentTarget::Windsurf);
                 let install_cline = agent == Some(AgentTarget::Cline);
@@ -1764,6 +1799,7 @@ fn run_cli() -> Result<i32> {
                     install_claude,
                     install_opencode,
                     install_cursor,
+                    omp,
                     install_windsurf,
                     install_cline,
                     claude_md,

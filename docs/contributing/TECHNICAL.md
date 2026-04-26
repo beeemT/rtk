@@ -75,7 +75,7 @@ The user runs `rtk init` to set up hooks for their LLM agent. This:
 3. Patches the agent's settings file (e.g., `settings.json`) to register the hook
 4. Writes RTK awareness instructions (e.g., `RTK.md`) for prompt-level guidance
 
-RTK supports 7 agents, each with its own installation mode. The hook scripts are embedded in the binary and written at install time.
+RTK supports 8 hook/artifact families, each with its own installation mode. Hook scripts/extensions are embedded in the binary and written at install time.
 
 > **Details**: [`src/hooks/README.md`](../src/hooks/README.md) covers all installation modes, configuration files, and the uninstall flow.
 
@@ -89,6 +89,8 @@ When an LLM agent runs a command (e.g., `git status`):
 4. `rtk rewrite` consults the command registry and returns `rtk git status`
 5. The hook sends a response telling the agent to use the rewritten command
 6. If anything fails (jq missing, rtk not found, no match), the hook exits silently -- the raw command runs unchanged
+
+Oh-My-Pi is the exception: its `before_agent_start` extension can replace `systemPrompt` but cannot mutate tool-call input, so it provides prompt-level RTK awareness rather than transparent rewrite.
 
 All rewrite logic lives in Rust (`src/discover/registry.rs`). Hooks are thin delegates that handle agent-specific JSON formats.
 
@@ -317,6 +319,7 @@ Start here, then drill down into each README for file-level details.
 | [`windsurf/`](../hooks/windsurf/README.md) | Windsurf / Cascade | Rules file (workspace-scoped) |
 | [`codex/`](../hooks/codex/README.md) | OpenAI Codex CLI | Awareness document, AGENTS.md integration |
 | [`opencode/`](../hooks/opencode/README.md) | OpenCode | TypeScript plugin, zx library, in-place mutation |
+| [`omp/`](../hooks/omp/README.md) | Oh-My-Pi | TypeScript extension, before_agent_start prompt injection, no command rewrite |
 
 ---
 
@@ -335,6 +338,7 @@ RTK supports the following LLM agents through hook integrations:
 | Windsurf | Rules file | Prompt-level guidance | N/A (prompt) |
 | Codex CLI | Awareness doc | AGENTS.md integration | N/A (prompt) |
 | OpenCode | TS plugin | `tool.execute.before` event | Yes (in-place mutation) |
+| Oh-My-Pi | TS extension | `before_agent_start` prompt injection | No (prompt-level) |
 
 > **Details**: [`hooks/README.md`](../hooks/README.md) has the full JSON schemas for each agent. [`src/hooks/README.md`](../src/hooks/README.md) covers installation, integrity verification, and the rewrite command.
 

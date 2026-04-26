@@ -48,6 +48,7 @@ rtk gain    # should now show token savings stats
    rtk init --global    # Claude Code
    rtk init --global --cursor    # Cursor
    rtk init --global --opencode  # OpenCode
+   rtk init --global --omp       # Oh-My-Pi (prompt-level)
    ```
 
 3. Restart your AI assistant.
@@ -153,6 +154,16 @@ rtk init --global --opencode
 # restart OpenCode
 rtk init --show    # should show "OpenCode: plugin installed"
 ```
+
+## Oh-My-Pi not using RTK
+
+```bash
+rtk init --global --omp
+# restart Oh-My-Pi
+rtk init --show    # should show "Oh-My-Pi: extension installed"
+```
+
+Oh-My-Pi support is prompt-level. The extension injects RTK awareness with `before_agent_start`, but it cannot rewrite tool-call input automatically; the model must choose `rtk <command>` for supported shell commands.
 
 ## `cargo install rtk` installs the wrong package
 
