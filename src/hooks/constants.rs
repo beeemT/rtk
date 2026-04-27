@@ -14,6 +14,8 @@ pub const CLAUDE_HOOK_COMMAND: &str = "rtk hook claude";
 pub const CURSOR_HOOK_COMMAND: &str = "rtk hook cursor";
 
 pub const OPENCODE_PLUGIN_PATH: &str = ".config/opencode/plugins/rtk.ts";
+pub const OMP_DIR: &str = ".omp";
+pub const OMP_EXTENSION_PATH: &str = ".omp/agent/extensions/rtk.ts";
 pub const CURSOR_DIR: &str = ".cursor";
 pub const CODEX_DIR: &str = ".codex";
 pub const GEMINI_DIR: &str = ".gemini";

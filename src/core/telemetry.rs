@@ -353,6 +353,11 @@ fn detect_hook_type() -> String {
         None => return "unknown".to_string(),
     };
 
+    let cwd = std::env::current_dir().ok();
+    detect_hook_type_from(&home, cwd.as_deref())
+}
+
+fn detect_hook_type_from(home: &std::path::Path, cwd: Option<&std::path::Path>) -> String {
     // Check in order of popularity
     let checks = [
         (home.join(".claude/hooks/rtk-rewrite.sh"), "claude"),
@@ -360,6 +365,7 @@ fn detect_hook_type() -> String {
         (home.join(".gemini/hooks/rtk-hook.sh"), "gemini"),
         (home.join(".codex/AGENTS.md"), "codex"),
         (home.join(".cursor/hooks/rtk-rewrite.json"), "cursor"),
+        (home.join(".omp/agent/extensions/rtk.ts"), "omp"),
     ];
 
     for (path, name) in &checks {
@@ -369,7 +375,7 @@ fn detect_hook_type() -> String {
     }
 
     // Check project-level hooks
-    if let Ok(cwd) = std::env::current_dir() {
+    if let Some(cwd) = cwd {
         if cwd.join(".claude/hooks/rtk-rewrite.sh").exists() {
             return "claude".to_string();
         }
@@ -571,7 +577,7 @@ mod tests {
         assert!(stats.low_savings_commands.len() <= 5);
         assert!((0.0..=100.0).contains(&stats.avg_savings_per_command));
         assert!(
-            ["claude", "gemini", "codex", "cursor", "none", "unknown"]
+            ["claude", "gemini", "codex", "cursor", "omp", "none", "unknown"]
                 .iter()
                 .any(|&h| stats.hook_type.starts_with(h)),
             "Unexpected hook type: {}",
@@ -583,10 +589,21 @@ mod tests {
     fn test_detect_hook_type_returns_known() {
         let ht = detect_hook_type();
         assert!(
-            ["claude", "gemini", "codex", "cursor", "none", "unknown"].contains(&ht.as_str()),
+            ["claude", "gemini", "codex", "cursor", "omp", "none", "unknown"]
+                .contains(&ht.as_str()),
             "Unexpected hook type: {}",
             ht
         );
+    }
+
+    #[test]
+    fn test_detect_hook_type_from_detects_omp() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let extension = temp.path().join(".omp/agent/extensions/rtk.ts");
+        std::fs::create_dir_all(extension.parent().unwrap()).unwrap();
+        std::fs::write(&extension, "extension").unwrap();
+
+        assert_eq!(detect_hook_type_from(temp.path(), None), "omp");
     }
 
     #[test]

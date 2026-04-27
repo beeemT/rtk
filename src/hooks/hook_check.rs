@@ -5,7 +5,9 @@ use super::constants::{
     SETTINGS_JSON,
 };
 #[cfg(test)]
-use super::constants::{CODEX_DIR, CURSOR_DIR, GEMINI_DIR, GEMINI_HOOK_FILE, OPENCODE_PLUGIN_PATH};
+use super::constants::{
+    CODEX_DIR, CURSOR_DIR, GEMINI_DIR, GEMINI_HOOK_FILE, OMP_EXTENSION_PATH, OPENCODE_PLUGIN_PATH,
+};
 use crate::core::constants::RTK_DATA_DIR;
 use std::path::PathBuf;
 
@@ -146,6 +148,7 @@ fn other_integration_installed(home: &std::path::Path) -> bool {
         home.join(GEMINI_DIR)
             .join(HOOKS_SUBDIR)
             .join(GEMINI_HOOK_FILE),
+        home.join(OMP_EXTENSION_PATH),
     ];
     paths.iter().any(|p| p.exists())
 }
@@ -253,6 +256,15 @@ mod tests {
             .join(GEMINI_HOOK_FILE);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, b"hook").unwrap();
+        assert!(other_integration_installed(tmp.path()));
+    }
+
+    #[test]
+    fn test_other_integration_omp() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join(OMP_EXTENSION_PATH);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"extension").unwrap();
         assert!(other_integration_installed(tmp.path()));
     }
 

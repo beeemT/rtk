@@ -106,6 +106,7 @@ rtk init -g                     # Claude Code / Copilot (default)
 rtk init -g --gemini            # Gemini CLI
 rtk init -g --codex             # Codex (OpenAI)
 rtk init -g --agent cursor      # Cursor
+rtk init -g --omp               # Oh-My-Pi (prompt-level RTK awareness)
 rtk init --agent windsurf       # Windsurf
 rtk init --agent cline          # Cline / Roo Code
 rtk init --agent kilocode       # Kilo Code
@@ -115,7 +116,7 @@ rtk init --agent antigravity    # Google Antigravity
 git status  # Automatically rewritten to rtk git status
 ```
 
-The hook transparently rewrites Bash commands (e.g., `git status` -> `rtk git status`) before execution. Claude never sees the rewrite, it just gets compressed output.
+The hook transparently rewrites Bash commands (e.g., `git status` -> `rtk git status`) before execution in agents with command-rewrite APIs. Prompt-level integrations such as Oh-My-Pi tell the model to choose `rtk <command>` manually.
 
 **Important:** the hook only runs on Bash tool calls. Claude Code built-in tools like `Read`, `Grep`, and `Glob` do not pass through the Bash hook, so they are not auto-rewritten. To get RTK's compact output for those workflows, use shell commands (`cat`/`head`/`tail`, `rg`/`grep`, `find`) or call `rtk read`, `rtk grep`, or `rtk find` directly.
 
@@ -304,12 +305,13 @@ The most effective way to use rtk. The hook transparently intercepts Bash comman
 ```bash
 rtk init -g                 # Install hook + RTK.md (recommended)
 rtk init -g --opencode      # OpenCode plugin (instead of Claude Code)
+rtk init -g --omp           # Oh-My-Pi extension (prompt-level)
 rtk init -g --auto-patch    # Non-interactive (CI/CD)
 rtk init -g --hook-only     # Hook only, no RTK.md
 rtk init --show             # Verify installation
 ```
 
-After install, **restart Claude Code**.
+After install, **restart Claude Code** (or the target tool, such as OpenCode/Oh-My-Pi).
 
 ## Windows
 
@@ -350,7 +352,7 @@ rtk git status
 
 ## Supported AI Tools
 
-RTK supports 12 AI coding tools. Each integration transparently rewrites shell commands to `rtk` equivalents for 60-90% token savings.
+RTK supports 13 AI coding tools. Most hook integrations transparently rewrite shell commands to `rtk` equivalents; prompt-level integrations provide RTK awareness for manual `rtk <command>` selection.
 
 | Tool | Install | Method |
 |------|---------|--------|
@@ -363,6 +365,7 @@ RTK supports 12 AI coding tools. Each integration transparently rewrites shell c
 | **Windsurf** | `rtk init --agent windsurf` | .windsurfrules (project-scoped) |
 | **Cline / Roo Code** | `rtk init --agent cline` | .clinerules (project-scoped) |
 | **OpenCode** | `rtk init -g --opencode` | Plugin TS (tool.execute.before) |
+| **Oh-My-Pi** | `rtk init -g --omp` | TypeScript extension (`before_agent_start` prompt injection, no command rewrite) |
 | **OpenClaw** | `openclaw plugins install ./openclaw` | Plugin TS (before_tool_call) |
 | **Mistral Vibe** | Planned ([#800](https://github.com/rtk-ai/rtk/issues/800)) | Blocked on upstream |
 | **Kilo Code** | `rtk init --agent kilocode` | .kilocode/rules/rtk-rules.md (project-scoped) |

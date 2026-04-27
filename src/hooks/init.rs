@@ -8,12 +8,15 @@ use tempfile::NamedTempFile;
 
 use super::constants::{
     BEFORE_TOOL_KEY, CLAUDE_DIR, CLAUDE_HOOK_COMMAND, CODEX_DIR, CURSOR_HOOK_COMMAND,
-    GEMINI_HOOK_FILE, HOOKS_JSON, HOOKS_SUBDIR, PRE_TOOL_USE_KEY, REWRITE_HOOK_FILE, SETTINGS_JSON,
+    GEMINI_HOOK_FILE, HOOKS_JSON, HOOKS_SUBDIR, OMP_DIR, OMP_EXTENSION_PATH, PRE_TOOL_USE_KEY,
+    REWRITE_HOOK_FILE, SETTINGS_JSON,
 };
 use super::integrity;
 
 // Embedded OpenCode plugin (auto-rewrite)
 const OPENCODE_PLUGIN: &str = include_str!("../../hooks/opencode/rtk.ts");
+// Embedded Oh-My-Pi extension (prompt-level RTK awareness)
+const OMP_EXTENSION: &str = include_str!("../../hooks/omp/rtk.ts");
 
 // Embedded slim RTK awareness instructions
 const RTK_SLIM: &str = include_str!("../../hooks/claude/rtk-awareness.md");
@@ -221,6 +224,7 @@ pub fn run(
     install_claude: bool,
     install_opencode: bool,
     install_cursor: bool,
+    install_omp: bool,
     install_windsurf: bool,
     install_cline: bool,
     claude_md: bool,
@@ -233,6 +237,9 @@ pub fn run(
     if codex {
         if install_opencode {
             anyhow::bail!("--codex cannot be combined with --opencode");
+        }
+        if install_omp {
+            anyhow::bail!("--codex cannot be combined with --omp");
         }
         if claude_md {
             anyhow::bail!("--codex cannot be combined with --claude-md");
@@ -253,6 +260,9 @@ pub fn run(
     if install_opencode && !global {
         anyhow::bail!("OpenCode plugin is global-only. Use: rtk init -g --opencode");
     }
+    if install_omp && !global {
+        anyhow::bail!("Oh-My-Pi extension is global-only. Use: rtk init -g --omp");
+    }
 
     if install_cursor && !global {
         anyhow::bail!("Cursor hooks are global-only. Use: rtk init -g --agent cursor");
@@ -260,6 +270,33 @@ pub fn run(
 
     if install_windsurf && !global {
         anyhow::bail!("Windsurf support is global-only. Use: rtk init -g --agent windsurf");
+    }
+
+    if install_omp {
+        if install_opencode {
+            anyhow::bail!("--opencode and --omp cannot be combined yet; run `rtk init -g --opencode` and `rtk init -g --omp` separately");
+        }
+        if install_cursor || install_windsurf || install_cline {
+            anyhow::bail!(
+                "--omp cannot be combined with --agent; run the install commands separately"
+            );
+        }
+        if install_claude {
+            anyhow::bail!("--omp installs only Oh-My-Pi support; run Claude Code setup separately with `rtk init -g`");
+        }
+        if claude_md {
+            anyhow::bail!("--omp cannot be combined with --claude-md");
+        }
+        if hook_only {
+            anyhow::bail!("--omp cannot be combined with --hook-only");
+        }
+        if matches!(patch_mode, PatchMode::Auto) {
+            anyhow::bail!("--omp cannot be combined with --auto-patch");
+        }
+        if matches!(patch_mode, PatchMode::Skip) {
+            anyhow::bail!("--omp cannot be combined with --no-patch");
+        }
+        return run_omp_only_mode(verbose);
     }
 
     // Windsurf-only mode
@@ -534,8 +571,15 @@ fn remove_hook_from_settings(verbose: u8) -> Result<bool> {
     Ok(removed)
 }
 
-/// Full uninstall for Claude, Gemini, Codex, or Cursor artifacts.
-pub fn uninstall(global: bool, gemini: bool, codex: bool, cursor: bool, verbose: u8) -> Result<()> {
+/// Full uninstall for Claude, Gemini, Codex, Cursor, or Oh-My-Pi artifacts.
+pub fn uninstall(
+    global: bool,
+    gemini: bool,
+    codex: bool,
+    cursor: bool,
+    omp: bool,
+    verbose: u8,
+) -> Result<()> {
     if codex {
         return uninstall_codex(global, verbose);
     }
@@ -554,6 +598,24 @@ pub fn uninstall(global: bool, gemini: bool, codex: bool, cursor: bool, verbose:
             println!("\nRestart Cursor to apply changes.");
         } else {
             println!("RTK Cursor support was not installed (nothing to remove)");
+        }
+        return Ok(());
+    }
+
+    if omp {
+        if !global {
+            anyhow::bail!("Oh-My-Pi uninstall only works with --global flag");
+        }
+        let omp_removed =
+            remove_omp_extension(verbose).context("Failed to remove Oh-My-Pi extension")?;
+        if !omp_removed.is_empty() {
+            println!("RTK uninstalled (Oh-My-Pi):");
+            for path in &omp_removed {
+                println!("  - Oh-My-Pi extension: {}", path.display());
+            }
+            println!("\nRestart Oh-My-Pi to apply changes.");
+        } else {
+            println!("RTK Oh-My-Pi support was not installed (nothing to remove)");
         }
         return Ok(());
     }
@@ -636,7 +698,13 @@ pub fn uninstall(global: bool, gemini: bool, codex: bool, cursor: bool, verbose:
         removed.push(format!("OpenCode plugin: {}", path.display()));
     }
 
-    // 6. Remove Cursor hooks
+    // 6. Remove Oh-My-Pi extension
+    let omp_removed = remove_omp_extension(verbose)?;
+    for path in omp_removed {
+        removed.push(format!("Oh-My-Pi extension: {}", path.display()));
+    }
+
+    // 7. Remove Cursor hooks
     let cursor_removed = remove_cursor_hooks(verbose)?;
     removed.extend(cursor_removed);
 
@@ -648,7 +716,9 @@ pub fn uninstall(global: bool, gemini: bool, codex: bool, cursor: bool, verbose:
         for item in removed {
             println!("  - {}", item);
         }
-        println!("\nRestart Claude Code, OpenCode, and Cursor (if used) to apply changes.");
+        println!(
+            "\nRestart Claude Code, OpenCode, Oh-My-Pi, and Cursor (if used) to apply changes."
+        );
     }
 
     Ok(())
@@ -1804,6 +1874,71 @@ fn remove_opencode_plugin(verbose: u8) -> Result<Vec<PathBuf>> {
     Ok(removed)
 }
 
+// ─── Oh-My-Pi support ───────────────────────────────────────────────
+fn resolve_omp_dir() -> Result<PathBuf> {
+    resolve_home_subdir(OMP_DIR)
+}
+
+/// Return Oh-My-Pi extension path: ~/.omp/agent/extensions/rtk.ts
+fn omp_extension_path(omp_dir: &Path) -> PathBuf {
+    let relative = Path::new(OMP_EXTENSION_PATH)
+        .strip_prefix(OMP_DIR)
+        .unwrap_or_else(|_| Path::new("agent/extensions/rtk.ts"));
+    omp_dir.join(relative)
+}
+
+/// Prepare Oh-My-Pi extension directory and return install path.
+fn prepare_omp_extension_path() -> Result<PathBuf> {
+    let omp_dir = resolve_omp_dir()?;
+    let path = omp_extension_path(&omp_dir);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "Failed to create Oh-My-Pi extension directory: {}",
+                parent.display()
+            )
+        })?;
+    }
+    Ok(path)
+}
+
+/// Write Oh-My-Pi extension file if missing or outdated.
+fn ensure_omp_extension_installed(path: &Path, verbose: u8) -> Result<bool> {
+    write_if_changed(path, OMP_EXTENSION, "Oh-My-Pi extension", verbose)
+}
+
+/// Remove Oh-My-Pi extension file.
+fn remove_omp_extension(verbose: u8) -> Result<Vec<PathBuf>> {
+    let omp_dir = match resolve_omp_dir() {
+        Ok(dir) => dir,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let path = omp_extension_path(&omp_dir);
+    remove_omp_extension_at(&path, verbose)
+}
+
+fn remove_omp_extension_at(path: &Path, verbose: u8) -> Result<Vec<PathBuf>> {
+    let mut removed = Vec::new();
+    if path.exists() {
+        fs::remove_file(path)
+            .with_context(|| format!("Failed to remove Oh-My-Pi extension: {}", path.display()))?;
+        if verbose > 0 {
+            eprintln!("Removed Oh-My-Pi extension: {}", path.display());
+        }
+        removed.push(path.to_path_buf());
+    }
+    Ok(removed)
+}
+
+fn run_omp_only_mode(verbose: u8) -> Result<()> {
+    let omp_extension_path = prepare_omp_extension_path()?;
+    ensure_omp_extension_installed(&omp_extension_path, verbose)?;
+    println!("\nOh-My-Pi extension installed (global).\n");
+    println!("  Oh-My-Pi: {}", omp_extension_path.display());
+    println!("  Restart Oh-My-Pi. RTK awareness is prompt-level; use `rtk <command>` for supported shell commands.\n");
+    Ok(())
+}
+
 // ─── Cursor Agent support ─────────────────────────────────────────────
 
 fn resolve_cursor_dir() -> Result<PathBuf> {
@@ -2240,6 +2375,25 @@ fn show_claude_config() -> Result<()> {
         println!("[--] OpenCode: config dir not found");
     }
 
+    // Check Oh-My-Pi extension
+    if let Ok(omp_dir) = resolve_omp_dir() {
+        if omp_dir.exists() {
+            let extension = omp_extension_path(&omp_dir);
+            if extension.exists() {
+                println!(
+                    "[ok] Oh-My-Pi: extension installed ({})",
+                    extension.display()
+                );
+            } else {
+                println!("[--] Oh-My-Pi: extension not found");
+            }
+        } else {
+            println!("[--] Oh-My-Pi: config dir not found");
+        }
+    } else {
+        println!("[--] Oh-My-Pi: home dir not found");
+    }
+
     // Check Cursor hooks
     if let Ok(cursor_dir) = resolve_cursor_dir() {
         let cursor_hook = cursor_dir.join(HOOKS_SUBDIR).join(REWRITE_HOOK_FILE);
@@ -2303,6 +2457,7 @@ fn show_claude_config() -> Result<()> {
     println!("  rtk init --codex            # Configure local AGENTS.md + RTK.md");
     println!("  rtk init -g --codex         # Configure $CODEX_HOME/AGENTS.md + $CODEX_HOME/RTK.md (or ~/.codex/)");
     println!("  rtk init -g --opencode      # OpenCode plugin only");
+    println!("  rtk init -g --omp           # Oh-My-Pi extension only");
     println!("  rtk init -g --agent cursor  # Install Cursor Agent hooks");
 
     Ok(())
@@ -2758,6 +2913,57 @@ More content"#;
     }
 
     #[test]
+    fn test_omp_extension_install_and_update() {
+        let temp = TempDir::new().unwrap();
+        let omp_dir = temp.path().join(".omp");
+        let extension_path = omp_extension_path(&omp_dir);
+
+        fs::create_dir_all(extension_path.parent().unwrap()).unwrap();
+        assert!(!extension_path.exists());
+
+        let changed = ensure_omp_extension_installed(&extension_path, 0).unwrap();
+        assert!(changed);
+        let content = fs::read_to_string(&extension_path).unwrap();
+        assert_eq!(content, OMP_EXTENSION);
+
+        let unchanged = ensure_omp_extension_installed(&extension_path, 0).unwrap();
+        assert!(!unchanged, "unchanged OMP extension should be idempotent");
+
+        fs::write(&extension_path, "// old").unwrap();
+        let changed_again = ensure_omp_extension_installed(&extension_path, 0).unwrap();
+        assert!(changed_again);
+        let content_updated = fs::read_to_string(&extension_path).unwrap();
+        assert_eq!(content_updated, OMP_EXTENSION);
+    }
+
+    #[test]
+    fn test_omp_extension_remove() {
+        let temp = TempDir::new().unwrap();
+        let omp_dir = temp.path().join(".omp");
+        let extension_path = omp_extension_path(&omp_dir);
+        fs::create_dir_all(extension_path.parent().unwrap()).unwrap();
+        fs::write(&extension_path, OMP_EXTENSION).unwrap();
+
+        let removed_first = remove_omp_extension_at(&extension_path, 0).unwrap();
+        let removed_second = remove_omp_extension_at(&extension_path, 0).unwrap();
+
+        assert_eq!(removed_first, vec![extension_path.clone()]);
+        assert!(removed_second.is_empty());
+        assert!(!extension_path.exists());
+    }
+
+    #[test]
+    fn test_omp_extension_artifact_prompt_only() {
+        assert!(OMP_EXTENSION.contains("<!-- rtk-omp -->"));
+        assert!(OMP_EXTENSION.contains("before_agent_start"));
+        assert!(OMP_EXTENSION.contains("systemPrompt"));
+        assert!(!OMP_EXTENSION.contains("systemPromptAppend"));
+        // No tool_call handler (Capability A intentionally omitted — a comment
+        // mentioning "tool_call" is fine; we check for actual handler registration)
+        assert!(!OMP_EXTENSION.contains("pi.on(\"tool_call\""));
+    }
+
+    #[test]
     fn test_migration_warns_on_missing_end_marker() {
         let input = "<!-- rtk-instructions v2 -->\nOLD STUFF\nNo end marker";
         let (result, migrated) = remove_rtk_block(input);
@@ -2866,15 +3072,16 @@ More notes
     #[test]
     fn test_codex_mode_rejects_auto_patch() {
         let err = run(
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            true,
+            false, // global
+            false, // install_claude
+            false, // install_opencode
+            false, // install_cursor
+            false, // install_omp
+            false, // install_windsurf
+            false, // install_cline
+            false, // claude_md
+            false, // hook_only
+            true,  // codex
             PatchMode::Auto,
             0,
         )
@@ -2886,17 +3093,42 @@ More notes
     }
 
     #[test]
+    fn test_run_omp_mode_global_only() {
+        // --omp is global-only; non-global must fail with the right error
+        let err = run(
+            false, // global
+            false, // install_claude
+            false, // install_opencode
+            false, // install_cursor
+            true,  // install_omp
+            false, // install_windsurf
+            false, // install_cline
+            false, // claude_md
+            false, // hook_only
+            false, // codex
+            PatchMode::Ask,
+            0,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Oh-My-Pi extension is global-only. Use: rtk init -g --omp"
+        );
+    }
+
+    #[test]
     fn test_codex_mode_rejects_no_patch() {
         let err = run(
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            true,
+            false, // global
+            false, // install_claude
+            false, // install_opencode
+            false, // install_cursor
+            false, // install_omp
+            false, // install_windsurf
+            false, // install_cline
+            false, // claude_md
+            false, // hook_only
+            true,  // codex
             PatchMode::Skip,
             0,
         )
@@ -3691,7 +3923,7 @@ More notes
         let tmp = TempDir::new().unwrap();
         with_claude_dir_override(&tmp, |claude_dir| {
             run_default_mode(true, PatchMode::Auto, 0, false).unwrap();
-            uninstall(true, false, false, false, 0).unwrap();
+            uninstall(true, false, false, false, false, 0).unwrap();
 
             assert!(!claude_dir.join(RTK_MD).exists(), "RTK.md must be removed");
             let settings_content =
