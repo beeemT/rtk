@@ -1,3 +1,12 @@
+// Oh-My-Pi RTK Extension
+// Installed by: rtk init -g --omp
+// Installs to: ~/.omp/agent/extensions/rtk.ts
+//
+// Implements Capability B only (system-prompt injection via before_agent_start).
+// Capability A (tool_call command rewriting) is intentionally omitted — Oh-My-Pi's
+// tool_call result type cannot replace tool-call input. Commands are not
+// transparently rewritten; the extension injects RTK awareness into the system
+// prompt instead. See hooks/omp/README.md.
 import { execFileSync } from "node:child_process"
 
 const MARKER = "<!-- rtk-omp -->"

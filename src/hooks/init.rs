@@ -2958,7 +2958,9 @@ More content"#;
         assert!(OMP_EXTENSION.contains("before_agent_start"));
         assert!(OMP_EXTENSION.contains("systemPrompt"));
         assert!(!OMP_EXTENSION.contains("systemPromptAppend"));
-        assert!(!OMP_EXTENSION.contains("tool_call"));
+        // No tool_call handler (Capability A intentionally omitted — a comment
+        // mentioning "tool_call" is fine; we check for actual handler registration)
+        assert!(!OMP_EXTENSION.contains("pi.on(\"tool_call\""));
     }
 
     #[test]
@@ -3070,16 +3072,16 @@ More notes
     #[test]
     fn test_codex_mode_rejects_auto_patch() {
         let err = run(
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            true,
+            false, // global
+            false, // install_claude
+            false, // install_opencode
+            false, // install_cursor
+            false, // install_omp
+            false, // install_windsurf
+            false, // install_cline
+            false, // claude_md
+            false, // hook_only
+            true,  // codex
             PatchMode::Auto,
             0,
         )
@@ -3091,18 +3093,42 @@ More notes
     }
 
     #[test]
+    fn test_run_omp_mode_global_only() {
+        // --omp is global-only; non-global must fail with the right error
+        let err = run(
+            false, // global
+            false, // install_claude
+            false, // install_opencode
+            false, // install_cursor
+            true,  // install_omp
+            false, // install_windsurf
+            false, // install_cline
+            false, // claude_md
+            false, // hook_only
+            false, // codex
+            PatchMode::Ask,
+            0,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Oh-My-Pi extension is global-only. Use: rtk init -g --omp"
+        );
+    }
+
+    #[test]
     fn test_codex_mode_rejects_no_patch() {
         let err = run(
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            true,
+            false, // global
+            false, // install_claude
+            false, // install_opencode
+            false, // install_cursor
+            false, // install_omp
+            false, // install_windsurf
+            false, // install_cline
+            false, // claude_md
+            false, // hook_only
+            true,  // codex
             PatchMode::Skip,
             0,
         )
